@@ -156,21 +156,29 @@ module QueryResult : sig
 end
 
 module Client : sig
+  type scheme = HTTP | HTTPS | UDP
+  type t = {
+    scheme: scheme;
+    username: string;
+    password: string;
+    host: string;
+    port: int;
+    database: string
+  }
 
-  type t
+  val database : t -> string
 
-  val database_of_t : t -> string
-
-  (** Create a client *)
   val create :
-    ?username:string -> ?password:string -> ?host:string -> ?port:int -> ?use_https:bool -> database:string -> unit -> t
+    ?scheme:scheme -> ?username:string -> ?password:string ->
+    ?host:string -> ?port:int ->
+    database:string -> unit -> t
 
-  val switch_database : t -> string -> t
+  val with_database : database:string -> t -> t
 
   module Raw : sig
-    val get_request : t -> ?additional_params:(string * string) list -> string -> string Lwt.t
+    val get_request : t -> ?query:(string * string) list -> string -> string Lwt.t
 
-    val post_request : t -> string -> ?additional_params:(string * string) list -> string -> string Lwt.t
+    val post_request : t -> string -> ?query:(string * string) list -> string -> string Lwt.t
 
     (** About databases *)
     val get_all_database_names : t -> string Lwt.t
@@ -219,9 +227,8 @@ module Client : sig
       Point.t list ->
       string Lwt.t
 
-    val get_tag_names_of_measurement : t -> Measurement.t -> string Lwt.t
-
-    val get_field_names_of_measurement : t -> Measurement.t -> string Lwt.t
+    val get_tag_names_of_measurement : t -> string Lwt.t
+    val get_field_names_of_measurement : t -> string Lwt.t
   end
 
   val get_default_retention_policy_of_database : t -> RetentionPolicy.t Lwt.t

@@ -337,81 +337,60 @@ module QueryResult = struct
 end
 
 module Client = struct
+  type scheme = HTTP | HTTPS | UDP
+  let string_of_scheme = function
+    | HTTP -> "http"
+    | HTTPS -> "https"
+    | UDP -> "udp"
+
   type t = {
+    scheme : scheme;
     username: string;
     password: string;
     host: string;
     port: int;
-    use_https: bool;
     database: string
   }
 
-  let create ?(username="root") ?(password="root") ?(host="localhost") ?(port=8086) ?(use_https=false) ~database () = {
-      username; password; host; port; use_https; database
-    }
+  let database { database ; _ } = database
 
-  let switch_database client database = {
-    username = client.username;
-    password = client.password;
-    host = client.host;
-    port = client.port;
-    use_https = client.use_https;
-    database = database
-  }
+  let with_database ~database t =
+    { t with database = database }
 
-  let database_of_t c = c.database
+  let create
+      ?(scheme=HTTP)
+      ?(username="root")
+      ?(password="root")
+      ?(host="localhost")
+      ?(port=8086)
+      ~database () =
+    { scheme; username; password; host; port; database }
+
+    let url { scheme ; host ; port ; _ } =
+      Uri.make ~scheme:(string_of_scheme scheme) ~host ~port ()
 
   (**********************************************************************)
   (***** Raw module *****)
   module Raw = struct
-    let url client =
-      let protocol = if client.use_https then "https" else "http" in
-      Printf.sprintf
-        "%s://%s:%d"
-        protocol
-        client.host
-        client.port
-
-    let get_request t ?(additional_params=[]) request =
-      let base_url = url t in
-      let additional_params = ("q", request) :: additional_params in
-      let additional_params =
-        String.concat "&" (List.map (fun (key, value) -> Printf.sprintf "%s=%s" key value) additional_params)
-      in
-      let url =
-        Printf.sprintf
-          "%s/query?%s"
-          base_url
-          additional_params
-      in
-      Cohttp_lwt_unix.Client.get (Uri.of_string url) >>= fun(_response, body) ->
+    let get_request t ?(query=[]) request =
+      let u = url t in
+      let u = Uri.with_query' u (("q", request) :: query) in
+      Cohttp_lwt_unix.Client.get u >>= fun (_response, body) ->
       (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
       let body = Cohttp_lwt.Body.to_string body in
       body
 
-    let post_request client endpoint ?(additional_params=[]) data =
+    let post_request client endpoint ?(query=[]) data =
       let body = Cohttp_lwt.Body.of_string data in
-      let base_url = url client in
-      let additional_params =
-        if List.length additional_params > 0
-        then
-          "?" ^ (String.concat "&" (List.map (fun (key, value) -> Printf.sprintf "%s=%s" key value) additional_params))
-        else ""
-      in
-      let url = Printf.sprintf
-          "%s/%s%s"
-          base_url
-          endpoint
-          additional_params
-      in
+      let u = url client in
+      let u = Uri.with_path u endpoint in
+      let u = Uri.with_query' u query in
       (* The headers are mandatory! Else, we will receive the error
           {"error":"missing required parameter \"q\""}
       *)
-      let headers = Cohttp.Header.init () in
-      let headers =
-          Cohttp.Header.add headers "Content-Type" "application/x-www-form-urlencoded"
-      in
-      Cohttp_lwt_unix.Client.post ~body ~headers (Uri.of_string url) >>= fun (_response, body) ->
+      let headers = Cohttp.Header.init_with
+          "Content-Type" "application/x-www-form-urlencoded" in
+      Cohttp_lwt_unix.Client.post ~body ~headers u >>= fun (_response, body) ->
       (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
       Cohttp_lwt.Body.to_string body
 
@@ -447,19 +426,19 @@ module Client = struct
           where
           group_by
       in
-      let additional_params = [("db", client.database)] in
-      get_request client ~additional_params request
+      let query = ["db", client.database] in
+      get_request client ~query request
 
     let write_points client ?precision ?retention_policy points =
       let line = String.concat "\n" (List.map Point.line_of_t points) in
-      let additional_params = match (retention_policy, precision) with
+      let query = match retention_policy, precision with
         | None, None -> []
-        | Some rp, None -> [("rp", (RetentionPolicy.name_of_t rp))]
-        | None, Some precision -> [("epoch", (Precision.string_of_t precision))]
-        | Some rp, Some precision -> [("rp", RetentionPolicy.name_of_t rp); ("epoch", Precision.string_of_t precision)]
+        | Some rp, None -> ["rp", RetentionPolicy.name_of_t rp]
+        | None, Some precision -> ["epoch", Precision.string_of_t precision]
+        | Some rp, Some precision -> ["rp", RetentionPolicy.name_of_t rp; "epoch", Precision.string_of_t precision]
       in
-      let additional_params = ("db", client.database) :: additional_params in
-      post_request client "write" ~additional_params line
+      let query = ("db", client.database) :: query in
+      post_request client "write" ~query line
 
     let create_database client database_name =
       let query = Printf.sprintf
@@ -510,32 +489,23 @@ module Client = struct
       post_request client "query" query
 
     let get_all_measurements client =
-      let query = "SHOW MEASUREMENTS" in
-      let additional_params = [("db", client.database)] in
-      get_request client ~additional_params query
+      get_request client ~query:["db", client.database] "SHOW MEASUREMENTS"
 
     let drop_measurement client measurement =
       (* FIXME: Need to escape double quotes. For the moment, we can't drop the
          measurement q=cpu_load_short due to q=. Same thing happens when we use
          simple quote.
       *)
-      let query =
-        Printf.sprintf
-          "q=DROP MEASUREMENT %s"
-          (Measurement.string_of_t measurement)
+      let data =
+        "q=DROP MEASUREMENT " ^ (Measurement.string_of_t measurement)
       in
-      let additional_params = [("db", client.database)] in
-      post_request client "query" ~additional_params query
+      post_request client "query" ~query:[("db", client.database)] data
 
-    let get_tag_names_of_measurement client _measurement =
-      let query = "SHOW TAG KEYS" in
-      let additional_params = [("db", client.database)] in
-      get_request client ~additional_params query
+    let get_tag_names_of_measurement client =
+      get_request client ~query:["db", client.database] "SHOW TAG KEYS"
 
-    let get_field_names_of_measurement client _measurement =
-      let query = "SHOW FIELD KEYS" in
-      let additional_params = [("db", client.database)] in
-      get_request client ~additional_params query
+    let get_field_names_of_measurement client =
+      get_request client ~query:["db", client.database] "SHOW FIELD KEYS"
 
   end
   (***** Raw module *****)
@@ -608,7 +578,7 @@ module Client = struct
     Raw.drop_measurement client measurement >>= fun _resp -> Lwt.return ()
 
   let get_tag_names_of_measurement client measurement =
-    Raw.get_tag_names_of_measurement client measurement >>= fun str ->
+    Raw.get_tag_names_of_measurement client >>= fun str ->
     let results = QueryResult.of_string str in
     let series = QueryResult.series_of_t results in
     let tags_of_measurements =
@@ -632,7 +602,7 @@ module Client = struct
     Lwt.return values
 
   let get_field_names_of_measurement client measurement =
-    Raw.get_field_names_of_measurement client measurement >>= fun str ->
+    Raw.get_field_names_of_measurement client >>= fun str ->
     let results = QueryResult.of_string str in
     let series = QueryResult.series_of_t results in
     let fields_of_measurements =
