@@ -2,8 +2,8 @@ open Lwt.Infix
 
 module Json = Yojson.Basic
 
-(** timestamp -> datetime pour affichage *)
-(** datetime -> timestamp pour les query *)
+(** timestamp -> datetime pour affichage
+    datetime -> timestamp pour les query *)
 module Datetime = struct
   type t = {
     ptime_base: Ptime.t;
@@ -20,7 +20,7 @@ module Datetime = struct
     Int64.of_float nanosecond_float
 
 
-  let rec fill_with_zero max int =
+  let fill_with_zero max int =
     let rec nb_digit accu i =
       if i / 10 >= 1 then nb_digit (accu + 1) (i / 10) else accu
     in
@@ -30,7 +30,7 @@ module Datetime = struct
     else string_of_int int
 
   let string_of_t t =
-    let (year, month, day), ((hour, minute, second), offset) = Ptime.to_date_time t.ptime_base in
+    let (year, month, day), ((hour, minute, second), _offset) = Ptime.to_date_time t.ptime_base in
     Printf.sprintf
       "%s-%s-%sT%s:%s:%s.%sZ"
       (fill_with_zero 4 year)
@@ -42,7 +42,7 @@ module Datetime = struct
       (fill_with_zero 9 t.nanosecond)
 
   let query_string_of_t t =
-    let (year, month, day), ((hour, minute, second), offset) = Ptime.to_date_time t.ptime_base in
+    let (year, month, day), ((hour, minute, second), _offset) = Ptime.to_date_time t.ptime_base in
     Printf.sprintf
       "%s-%s-%s %s:%s:%s"
       (fill_with_zero 4 year)
@@ -164,12 +164,8 @@ module Field = struct
 end
 
 module Tag = struct
-  (** The key of a tag. *)
   type key = string
-  (** The value of a tag. *)
   type value = string
-
-  (** A field is a couple (key, value) *)
   type t = key * value
 
   let t_of_key_and_value k v = (k, v)
@@ -189,15 +185,6 @@ module RetentionPolicy = struct
     replicant: int;
     default: bool;
     is_basic: bool
-  }
-
-  let basic_retention_policy_of_string name = {
-    name;
-    duration = "";
-    shard_group_duration = "";
-    replicant = 0;
-    default = false;
-    is_basic = true;
   }
 
   let check_if_basic rp =
@@ -276,10 +263,6 @@ module Point = struct
     | Field of Field.t
     | Tag of Tag.t
     | Time of Datetime.t
-
-  (* FIXME: the timestamp must be the current time, in microseconds/nanoseconds *)
-  let to_t measurement fields tags time =
-    {measurement; fields; tags; time}
 
   (** Get the measurement of a point. *)
   let measurement_of_point point = point.measurement
@@ -401,7 +384,7 @@ module Client = struct
           base_url
           additional_params
       in
-      Cohttp_lwt_unix.Client.get (Uri.of_string url) >>= fun(response, body) ->
+      Cohttp_lwt_unix.Client.get (Uri.of_string url) >>= fun(_response, body) ->
       (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
       let body = Cohttp_lwt.Body.to_string body in
       body
@@ -428,7 +411,7 @@ module Client = struct
       let headers =
           Cohttp.Header.add headers "Content-Type" "application/x-www-form-urlencoded"
       in
-      Cohttp_lwt_unix.Client.post ~body ~headers (Uri.of_string url) >>= fun (response, body) ->
+      Cohttp_lwt_unix.Client.post ~body ~headers (Uri.of_string url) >>= fun (_response, body) ->
       (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
       Cohttp_lwt.Body.to_string body
 
@@ -544,12 +527,12 @@ module Client = struct
       let additional_params = [("db", client.database)] in
       post_request client "query" ~additional_params query
 
-    let get_tag_names_of_measurement client measurement =
+    let get_tag_names_of_measurement client _measurement =
       let query = "SHOW TAG KEYS" in
       let additional_params = [("db", client.database)] in
       get_request client ~additional_params query
 
-    let get_field_names_of_measurement client measurement =
+    let get_field_names_of_measurement client _measurement =
       let query = "SHOW FIELD KEYS" in
       let additional_params = [("db", client.database)] in
       get_request client ~additional_params query
@@ -560,7 +543,7 @@ module Client = struct
 
   (** About databases *)
   let create_database client database_name =
-    Raw.create_database client database_name >>= fun body_str ->
+    Raw.create_database client database_name >>= fun _body_str ->
     Lwt.return ()
 
   let get_all_database_names client =
@@ -575,7 +558,7 @@ module Client = struct
     Lwt.return values
 
   let drop_database client name =
-    Raw.drop_database client name >>= fun resp -> Lwt.return ()
+    Raw.drop_database client name >>= fun _resp -> Lwt.return ()
 
   (** About retention policies *)
   let get_all_retention_policies client =
@@ -595,10 +578,10 @@ module Client = struct
 
   let create_retention_policy ?(default = false) ?(replicant=1) ~name ~duration client =
     Raw.create_retention_policy ~default ~replicant ~name ~duration client >>=
-    fun resp -> Lwt.return ()
+    fun _resp -> Lwt.return ()
 
   let drop_retention_policy client name =
-    Raw.drop_retention_policy client name >>= fun resp -> Lwt.return ()
+    Raw.drop_retention_policy client name >>= fun _resp -> Lwt.return ()
 
   let get_default_retention_policy_of_database client =
     get_all_retention_policies client >>= fun rps ->
@@ -606,14 +589,14 @@ module Client = struct
 
 
   let write_points client ?precision ?retention_policy points =
-    Raw.write_points client ?precision ?retention_policy points >>= fun resp -> Lwt.return_unit
+    Raw.write_points client ?precision ?retention_policy points >>= fun _resp -> Lwt.return_unit
 
   let get_all_measurements client =
     Raw.get_all_measurements client >>= fun str ->
     let results = QueryResult.of_string str in
     let measurements = match (QueryResult.series_of_t results) with
       | [] -> []
-      | head :: tail ->
+      | head :: _tail ->
         List.map
           (fun json -> Json.Util.to_string json |> Measurement.t_of_string)
           ((QueryResult.values_of_serie head) |> List.hd)
@@ -622,7 +605,7 @@ module Client = struct
     Lwt.return measurements
 
   let drop_measurement client measurement =
-    Raw.drop_measurement client measurement >>= fun resp -> Lwt.return ()
+    Raw.drop_measurement client measurement >>= fun _resp -> Lwt.return ()
 
   let get_tag_names_of_measurement client measurement =
     Raw.get_tag_names_of_measurement client measurement >>= fun str ->
@@ -643,7 +626,7 @@ module Client = struct
     in
     let values =
       snd @@ List.find
-        (fun (name, values) -> String.equal name (Measurement.string_of_t measurement))
+        (fun (name, _values) -> String.equal name (Measurement.string_of_t measurement))
         tags_of_measurements
     in
     Lwt.return values
@@ -667,14 +650,14 @@ module Client = struct
     in
     let values =
       snd @@ List.find
-        (fun (name, values) -> String.equal name (Measurement.string_of_t measurement))
+        (fun (name, _values) -> String.equal name (Measurement.string_of_t measurement))
         fields_of_measurements
     in
     Lwt.return values
 
   let get_field_position tag_names field_names timestamp_name columns =
     List.mapi
-      (fun pos name ->
+      (fun _pos name ->
          let equal_name = String.equal name in
          if equal_name timestamp_name
          then (0,"time")
@@ -743,7 +726,7 @@ module Client = struct
     let serie = QueryResult.series_of_t results in
     let points = match serie with
     | [] -> []
-    | serie :: tail ->
+    | serie :: _tail ->
       let columns = QueryResult.columns_of_serie serie in
       let info = get_field_position tag_names field_names "time" columns in
       (* this function returns unit and iterate over a *)

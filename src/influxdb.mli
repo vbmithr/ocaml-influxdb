@@ -3,8 +3,6 @@ module Json = Yojson.Basic
 module Datetime : sig
   type t
 
-  val string_of_t : t -> string
-
   val query_string_of_t : t -> string
 
   val t_of_string : string -> t
@@ -62,6 +60,7 @@ module Field : sig
 
   (** Get the key of a tag. *)
   val key_of_field : t -> key
+
   (** Get the value of a tag. *)
   val value_of_field : t -> value
 
@@ -73,6 +72,7 @@ end
 module Tag : sig
   (** The key of a tag. *)
   type key = string
+
   (** The value of a tag. *)
   type value = string
 
@@ -124,6 +124,7 @@ module Point : sig
 
   (** Get the tags of a point. *)
   val tags_of_point : t -> Tag.t list
+
   (** Get the measurement of a point. *)
   val measurement_of_point : t -> Measurement.t
 
