@@ -1,12 +1,12 @@
 opam-version: "1.2"
 name:         "influxdb"
-version:      "1.0"
-maintainer:   "Danny Willems <contact@danny-willems.be>"
-authors:      "Danny Willems <contact@danny-willems.be>"
-bug_reports:  "https://github.com/dannywillems/ocaml-influxdb/issues"
-homepage:     "https://github.com/dannywillems/ocaml-influxdb"
-dev_repo:     "https://github.com/dannywillems/ocaml-influxdb"
-license:      "LGPL-3.0 with OCaml linking exception"
+version:      "0.1"
+maintainer:   "Vincent Bernardoff <vb@luminar.eu.org>"
+authors:      "Vincent Bernardoff <vb@luminar.eu.org>"
+bug-reports:  "https://github.com/vbmithr/ocaml-influxdb/issues"
+homepage:     "https://github.com/vbmithr/ocaml-influxdb"
+dev-repo:     "git+https://github.com/vbmithr/ocaml-influxdb.git"
+license:      "ISC"
 
 build:        ["jbuilder" "build" "-j" jobs "-p" name "@install"]
 
@@ -15,7 +15,9 @@ available: [
 ]
 
 depends: [
-  "lwt"
-  "jbuilder"
-  "cohttp"
+  "dune" {build & >= "1.0.1"}
+  "fmt" {>= "0.8.5"}
+  "lwt" {>= "3.3.0"}
+  "ptime" {>= "0.8.3"}
+  "ocplib-resto-directory"
 ]

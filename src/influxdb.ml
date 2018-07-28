@@ -1,686 +1,87 @@
-open Lwt.Infix
+(*---------------------------------------------------------------------------
+   Copyright (c) 2018 Vincent Bernardoff. All rights reserved.
+   Distributed under the ISC license, see terms at the end of the file.
+  ---------------------------------------------------------------------------*)
 
-module Json = Yojson.Basic
+let int64_ns_of_ptime t =
+  let d, ps = Ptime.Span.to_d_ps (Ptime.to_span t) in
+  Int64.(add (mul (of_int d) 86_400L) (div ps 1000L))
 
-(** timestamp -> datetime pour affichage
-    datetime -> timestamp pour les query *)
-module Datetime = struct
-  type t = {
-    ptime_base: Ptime.t;
-    nanosecond: int;
-  }
-
-  let big_bang = {
-    ptime_base=Ptime.epoch;
-    nanosecond=0
-  }
-
-  let int64_of_t t =
-    let nanosecond_float = (Ptime.to_float_s t.ptime_base) *. 1e9 +. float_of_int t.nanosecond in
-    Int64.of_float nanosecond_float
-
-
-  let fill_with_zero max int =
-    let rec nb_digit accu i =
-      if i / 10 >= 1 then nb_digit (accu + 1) (i / 10) else accu
-    in
-    let nb_digit_int = nb_digit 1 int in
-    if max - (nb_digit_int) > 0
-    then String.init (max - nb_digit_int) (fun _ -> '0') ^ (string_of_int int)
-    else string_of_int int
-
-  let string_of_t t =
-    let (year, month, day), ((hour, minute, second), _offset) = Ptime.to_date_time t.ptime_base in
-    Printf.sprintf
-      "%s-%s-%sT%s:%s:%s.%sZ"
-      (fill_with_zero 4 year)
-      (fill_with_zero 2 month)
-      (fill_with_zero 2 day)
-      (fill_with_zero 2 hour)
-      (fill_with_zero 2 minute)
-      (fill_with_zero 2 second)
-      (fill_with_zero 9 t.nanosecond)
-
-  let query_string_of_t t =
-    let (year, month, day), ((hour, minute, second), _offset) = Ptime.to_date_time t.ptime_base in
-    Printf.sprintf
-      "%s-%s-%s %s:%s:%s"
-      (fill_with_zero 4 year)
-      (fill_with_zero 2 month)
-      (fill_with_zero 2 day)
-      (fill_with_zero 2 hour)
-      (fill_with_zero 2 minute)
-      (fill_with_zero 2 second)
-
-  let to_t ~year ~month ~day ~hour ~minute ~second ~nanosecond =
-    let date = (year, month, day) in
-    let time = (hour, minute, second) in
-    let ptime_base = Ptime.of_date_time (date, (time, 0)) in
-    match ptime_base with
-    | Some ptime_base -> { ptime_base; nanosecond }
-    | None -> failwith "Error while creating Datetime.t. Be sure the parameters are in the ranges."
-
-  let t_of_string str =
-    let year = int_of_string (String.sub str 0 4) in
-    let month = int_of_string (String.sub str 5 2) in
-    let day = int_of_string (String.sub str 8 2) in
-    let hour = int_of_string (String.sub str 11 2) in
-    let minute = int_of_string (String.sub str 14 2) in
-    let second = int_of_string (String.sub str 17 2) in
-    let length_nano = String.length str - 20 - 1 in
-    let nanosecond = int_of_string (String.sub str 20 length_nano) in
-    to_t ~year ~month ~day ~hour ~minute ~second ~nanosecond
-end
-
-module Where = struct
-  type order_sign =
-    | Equal
-    | Less
-    | Greater
-    | LessOrEqual
-    | GreaterOrEqual
-
-  let string_of_order_sign sign = match sign with
-    | Equal -> "="
-    | Less -> "<"
-    | Greater -> ">"
-    | LessOrEqual -> "<="
-    | GreaterOrEqual -> ">="
-
-  type t =
-    | Tag of string * string
-    | Field of string * string
-    | Time of order_sign * Datetime.t
-
-  let string_of_t t = match t with
-    | Tag(key, value) -> Printf.sprintf "%s='%s'" key value
-    | Field(key, value) -> Printf.sprintf "%s='%s'" key value
-    | Time(sign, date) -> Printf.sprintf "time %s '%s'" (string_of_order_sign sign) (Datetime.query_string_of_t date)
-
-  let string_of_list_of_t list_t =
-    String.concat " AND " (List.map string_of_t list_t)
-end
-
-module Precision = struct
-  type t =
-    | Second
-    | Millisecond
-    | Microsecond
-    | Nanosecond
-
-  let string_of_t t = match t with
-    | Second -> "s"
-    | Millisecond -> "ms"
-    | Microsecond -> "us"
-    | Nanosecond -> "ns"
-
-  let t_of_string s = match s with
-    | "s" -> Second
-    | "ms" -> Millisecond
-    | "us" -> Microsecond
-    | "ns" -> Nanosecond
-    | _ -> failwith (Printf.sprintf "Precision %s is not supported. Only s, ms, us and ns are supported." s)
-end
+let pp_ptime_ns ppf t =
+  Format.fprintf ppf "%Ld" (int64_ns_of_ptime t)
 
 module Field = struct
-  type key = string
-
   type value =
     | Float of float
     | String of string
     | Bool of bool
-    | Int of int
+    | Int of int64
 
-  type t = key * value
+  let pp_value ppf = function
+    | Float v -> Format.pp_print_float ppf v
+    | String v -> Format.pp_print_string ppf v
+    | Bool v -> Format.pp_print_bool ppf v
+    | Int v -> Format.fprintf ppf "%Ld" v
 
-  let value_of_string s = String s
-  let value_of_bool b = Bool b
-  let value_of_float f = Float f
-  let value_of_int i = Int i
+  let string_of_value = Fmt.to_to_string pp_value
 
-  let string_of_value value = match value with
-    | Float f -> string_of_float f
-    | String s -> s
-    | Bool b -> string_of_bool b
-    | Int i -> string_of_int i
+  type t = { k : string ; v : value }
 
-  let value_of_json json = match json with
-    | `Float f -> value_of_float f
-    | `Int i -> value_of_int i
-    | `String s -> value_of_string s
-    | `Bool b -> value_of_bool b
-    | _ -> failwith "Type not supported"
+  let pp ppf { k ; v } =
+    Format.fprintf ppf "%s=%a" k pp_value v
 
-  let key_of_field (k, _) = k
-  let value_of_field (_, v) = v
+  let to_string = Fmt.to_to_string pp
 
-  let string_of_t (key, value) =
-    Printf.sprintf
-      "%s=%s"
-      key
-      (string_of_value value)
+  let create ~k ~v = { k ; v }
 
-  let t_of_key_and_value key value = (key, value)
-end
-
-module RetentionPolicy = struct
-  type t = {
-    name: string;
-    duration: string;
-    shard_group_duration: string;
-    replicant: int;
-    default: bool;
-    is_basic: bool
-  }
-
-  let check_if_basic rp =
-    if rp.is_basic
-    then (failwith "This retention policy is a basic one. You can't only use it for the name")
-    else ()
-
-  let name_of_t t = t.name
-  let duration_of_t t =
-    check_if_basic t;
-    t.duration
-  let replicant_of_t t =
-    check_if_basic t;
-    t.replicant
-  let is_default t =
-    check_if_basic t;
-    t.default
-  let shard_group_duration_of_t t =
-    check_if_basic t;
-    t.shard_group_duration
-
-  let t_of_tuple (name, duration, shard_group_duration, replicant, default) = {
-    name;
-    duration;
-    shard_group_duration;
-    replicant;
-    default;
-    is_basic = false;
-  }
-
-  let t_of_json json =
-    match (Json.Util.to_list json) with
-    | name :: duration :: shard_group_duration :: replicant :: default :: [] ->
-      t_of_tuple (
-        (Json.Util.to_string name),
-        (Json.Util.to_string duration),
-        (Json.Util.to_string shard_group_duration),
-        (Json.Util.to_int replicant),
-        (Json.Util.to_bool default)
-      )
-    | _ -> failwith "Failed when fetching retention policies. Did the format change?"
-
-  let to_t ~name ~duration ~shard_group_duration ~replicant ~default = {
-    name;
-    duration;
-    replicant;
-    default;
-    shard_group_duration;
-    is_basic = false;
-  }
+  let key { k ; _ } = k
+  let value { v ; _ } = v
 end
 
 module Point = struct
-  (** The type of point. *)
   type t = {
     measurement: string;
     fields: Field.t list;
     tags: (string * string) list;
-    time: Datetime.t;
+    timestamp: Ptime.t
   }
 
-  type raw_value =
-    | Field of Field.t
-    | Tag of (string * string)
-    | Time of Datetime.t
+  let create ~measurement ~fields ~tags ~timestamp () =
+    { measurement; fields ; tags ; timestamp }
 
-  (** Get the measurement of a point. *)
-  let measurement_of_point { measurement ; _ } = measurement
+  let measurement { measurement ; _ } = measurement
+  let fields { fields ; _ } = fields
+  let tags { tags ; _ } = tags
+  let timestamp { timestamp ; _ } = timestamp
 
-  (** Get the fields of a point. *)
-  let fields_of_point point = point.fields
+  let pp_list pp = Format.pp_print_list
+      ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ",") pp
 
-  (** Get the tags of a point. *)
-  let tags_of_point point = point.tags
+  let pp_print_tag ppf (k, v) =
+    Format.fprintf ppf "%s=%s" k v
 
-  (** Get the timestamp of the point. *)
-  let time_of_point point = point.time
+  let pp ppf { measurement ; fields ; tags ; timestamp } =
+    Format.fprintf ppf "%s,%a %a %a"
+      measurement
+      (pp_list pp_print_tag) tags
+      (pp_list Field.pp) fields
+      pp_ptime_ns timestamp
 
-  let line_of_t point =
-    Printf.sprintf
-      "%s,%s %s %s"
-      point.measurement
-      (String.concat "," (List.map (fun (k, v) -> k ^ "=" ^ v) point.tags))
-      (String.concat "," (List.map Field.string_of_t point.fields))
-      (Int64.to_string (Datetime.int64_of_t point.time))
-
-  let to_t measurement fields tags time = {
-    measurement; fields; tags; time
-  }
-
+  let to_string = Fmt.to_to_string pp
 end
 
-module QueryResult = struct
-  type serie = {
-    name: string;
-    columns: string list;
-    values: Json.json list list;
-  }
+(*---------------------------------------------------------------------------
+   Copyright (c) 2018 Vincent Bernardoff
 
-  type t = {
-    statement_id: int;
-    series: serie list
-  }
+   Permission to use, copy, modify, and/or distribute this software for any
+   purpose with or without fee is hereby granted, provided that the above
+   copyright notice and this permission notice appear in all copies.
 
-  (* FIXME: Must return a list of t. I don't know why results is a list of
-     object and not an object.
-  *)
-  let of_string str =
-    let results =
-      Json.from_string str |> Json.Util.member "results" |> Json.Util.to_list |> List.hd
-    in
-    let statement_id = Json.Util.member "statement_id" results |> Json.Util.to_int in
-    (* Support the case series is empty. e.g. when there is no measurement. *)
-    let series = match (Json.Util.member "series" results) with
-      | `List l -> l
-      | _ -> []
-    in
-    let series = List.map
-      (fun serie ->
-         let name = Json.Util.member "name" serie |> Json.Util.to_string in
-         let columns_list = Json.Util.member "columns" serie |> Json.Util.to_list in
-         let columns = List.map Json.Util.to_string columns_list in
-         let values_list = Json.Util.member "values" serie |> Json.Util.to_list in
-         let values = List.map Json.Util.to_list values_list in
-         {name; columns; values}
-      )
-      series
-    in
-    {statement_id; series}
-
-  let statement_id_of_t r = r.statement_id
-  let series_of_t r = r.series
-
-  let values_of_serie s = s.values
-  let columns_of_serie s = s.columns
-  let name_of_serie s = s.name
-end
-
-module Client = struct
-  type scheme = HTTP | HTTPS | UDP
-  let string_of_scheme = function
-    | HTTP -> "http"
-    | HTTPS -> "https"
-    | UDP -> "udp"
-
-  type t = {
-    scheme : scheme;
-    username: string;
-    password: string;
-    host: string;
-    port: int;
-    database: string
-  }
-
-  let database { database ; _ } = database
-
-  let with_database ~database t =
-    { t with database = database }
-
-  let create
-      ?(scheme=HTTP)
-      ?(username="root")
-      ?(password="root")
-      ?(host="localhost")
-      ?(port=8086)
-      ~database () =
-    { scheme; username; password; host; port; database }
-
-    let url { scheme ; host ; port ; _ } =
-      Uri.make ~scheme:(string_of_scheme scheme) ~host ~port ()
-
-  (**********************************************************************)
-  (***** Raw module *****)
-  module Raw = struct
-    let get_request t ?(query=[]) request =
-      let u = url t in
-      let u = Uri.with_query' u (("q", request) :: query) in
-      Cohttp_lwt_unix.Client.get u >>= fun (_response, body) ->
-      (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
-      let body = Cohttp_lwt.Body.to_string body in
-      body
-
-    let post_request client endpoint ?(query=[]) data =
-      let body = Cohttp_lwt.Body.of_string data in
-      let u = url client in
-      let u = Uri.with_path u endpoint in
-      let u = Uri.with_query' u query in
-      (* The headers are mandatory! Else, we will receive the error
-          {"error":"missing required parameter \"q\""}
-      *)
-      let headers = Cohttp.Header.init_with
-          "Content-Type" "application/x-www-form-urlencoded" in
-      Cohttp_lwt_unix.Client.post ~body ~headers u >>= fun (_response, body) ->
-      (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
-      Cohttp_lwt.Body.to_string body
-
-    let get_points client ?retention_policy ?(where=[]) ?column ?group_by measurement =
-      (* If a retention policy is given, we need to use %s.%s.%s. Else, we can
-         only use the measurement and mention the database name in parameter *)
-      let from_request = match retention_policy with
-        | None -> measurement
-        | Some rp -> Printf.sprintf
-                       "%s.%s.%s"
-                       client.database
-                       (RetentionPolicy.name_of_t rp)
-                       measurement
-      in
-      let column = match column with
-        | None -> "*"
-        | Some c -> c
-      in
-      let group_by = match group_by with
-        | None -> ""
-        | Some t -> Printf.sprintf "GROUP BY time(%s)" t
-      in
-      let where =
-        if List.length where > 0
-        then Printf.sprintf "WHERE %s" (Where.string_of_list_of_t where)
-        else ""
-      in
-      let request =
-        Printf.sprintf
-          "SELECT %s FROM %s %s %s"
-          column
-          from_request
-          where
-          group_by
-      in
-      let query = ["db", client.database] in
-      get_request client ~query request
-
-    let write_points client ?precision ?retention_policy points =
-      let line = String.concat "\n" (List.map Point.line_of_t points) in
-      let query = match retention_policy, precision with
-        | None, None -> []
-        | Some rp, None -> ["rp", RetentionPolicy.name_of_t rp]
-        | None, Some precision -> ["epoch", Precision.string_of_t precision]
-        | Some rp, Some precision -> ["rp", RetentionPolicy.name_of_t rp; "epoch", Precision.string_of_t precision]
-      in
-      let query = ("db", client.database) :: query in
-      post_request client "write" ~query line
-
-    let create_database client database_name =
-      let query = Printf.sprintf
-          "q=CREATE DATABASE %s"
-          database_name
-      in
-      post_request client "query" query
-
-    let get_all_database_names client =
-      get_request client "SHOW DATABASES"
-
-    let get_all_retention_policies_of_database client =
-      let str = Printf.sprintf
-          "SHOW RETENTION POLICIES ON %s"
-          client.database
-      in
-      get_request client str
-
-    let drop_retention_policy client name =
-      let str = Printf.sprintf
-          "DROP RETENTION POLICY %s ON %s"
-          name
-          client.database
-      in
-      get_request client str
-
-    let drop_database client name =
-      let query = Printf.sprintf
-          "q=DROP DATABASE %s"
-          name
-      in
-      post_request client "query" query
-
-    let create_retention_policy ?(default = false) ?(replicant=1) ~name ~duration client =
-      let str_default = if default then "DEFAULT" else "" in
-      let query = Printf.sprintf
-          "q=CREATE RETENTION POLICY %s \
-           ON %s \
-           DURATION %s \
-           REPLICATION %d \
-           %s"
-          name
-          client.database
-          duration
-          replicant
-          str_default
-      in
-      post_request client "query" query
-
-    let get_all_measurements client =
-      get_request client ~query:["db", client.database] "SHOW MEASUREMENTS"
-
-    let drop_measurement client measurement =
-      (* FIXME: Need to escape double quotes. For the moment, we can't drop the
-         measurement q=cpu_load_short due to q=. Same thing happens when we use
-         simple quote.
-      *)
-      let data =
-        "q=DROP MEASUREMENT " ^ measurement
-      in
-      post_request client "query" ~query:[("db", client.database)] data
-
-    let get_tag_names_of_measurement client =
-      get_request client ~query:["db", client.database] "SHOW TAG KEYS"
-
-    let get_field_names_of_measurement client =
-      get_request client ~query:["db", client.database] "SHOW FIELD KEYS"
-
-  end
-  (***** Raw module *****)
-  (**********************************************************************)
-
-  (** About databases *)
-  let create_database client database_name =
-    Raw.create_database client database_name >>= fun _body_str ->
-    Lwt.return ()
-
-  let get_all_database_names client =
-    (Raw.get_all_database_names client) >>= fun body_str ->
-    let result = QueryResult.of_string body_str in
-    let serie = QueryResult.series_of_t result |> List.hd in
-    let values =
-      List.map
-        (fun value -> List.hd value |> Json.Util.to_string)
-        (QueryResult.values_of_serie serie)
-    in
-    Lwt.return values
-
-  let drop_database client name =
-    Raw.drop_database client name >>= fun _resp -> Lwt.return ()
-
-  (** About retention policies *)
-  let get_all_retention_policies client =
-    Raw.get_all_retention_policies_of_database client >>= fun str ->
-    let results = QueryResult.of_string str in
-    (* Can be useful later to check the columns are the same than we need *)
-    (* let columns = *)
-    (*   Json.Util.member "columns" series *)
-    (*   |> Json.Util.to_list *)
-    (* in *)
-    let values =
-      List.map
-        RetentionPolicy.t_of_json
-        (QueryResult.values_of_serie (QueryResult.series_of_t results |> List.hd) |> List.hd)
-    in
-    Lwt.return values
-
-  let create_retention_policy ?(default = false) ?(replicant=1) ~name ~duration client =
-    Raw.create_retention_policy ~default ~replicant ~name ~duration client >>=
-    fun _resp -> Lwt.return ()
-
-  let drop_retention_policy client name =
-    Raw.drop_retention_policy client name >>= fun _resp -> Lwt.return ()
-
-  let get_default_retention_policy_of_database client =
-    get_all_retention_policies client >>= fun rps ->
-    Lwt.return (List.find (fun rp -> RetentionPolicy.is_default rp) rps)
-
-
-  let write_points client ?precision ?retention_policy points =
-    Raw.write_points client ?precision ?retention_policy points >>= fun _resp -> Lwt.return_unit
-
-  let get_all_measurements client =
-    Raw.get_all_measurements client >>= fun str ->
-    let results = QueryResult.of_string str in
-    let measurements = match (QueryResult.series_of_t results) with
-      | [] -> []
-      | head :: _tail ->
-        List.map Json.Util.to_string
-          ((QueryResult.values_of_serie head) |> List.hd)
-          (* let measurements = List.map Measurement.t_of_string raw_measurements in *)
-    in
-    Lwt.return measurements
-
-  let drop_measurement client measurement =
-    Raw.drop_measurement client measurement >>= fun _resp -> Lwt.return ()
-
-  let get_tag_names_of_measurement client measurement =
-    Raw.get_tag_names_of_measurement client >>= fun str ->
-    let results = QueryResult.of_string str in
-    let series = QueryResult.series_of_t results in
-    let tags_of_measurements =
-      List.map
-        (fun serie ->
-           let name = QueryResult.name_of_serie serie in
-           let tags =
-             List.map
-               (fun value -> List.hd value |> Json.Util.to_string)
-               (QueryResult.values_of_serie serie)
-           in
-           (name, tags)
-        )
-        series
-    in
-    let values =
-      snd @@ List.find
-        (fun (name, _values) -> String.equal name measurement)
-        tags_of_measurements
-    in
-    Lwt.return values
-
-  let get_field_names_of_measurement client measurement =
-    Raw.get_field_names_of_measurement client >>= fun str ->
-    let results = QueryResult.of_string str in
-    let series = QueryResult.series_of_t results in
-    let fields_of_measurements =
-      List.map
-        (fun serie ->
-           let name = QueryResult.name_of_serie serie in
-           let fields =
-             List.map
-               (fun value -> List.hd value |> Json.Util.to_string)
-               (QueryResult.values_of_serie serie)
-           in
-           (name, fields)
-        )
-        series
-    in
-    let values =
-      snd @@ List.find
-        (fun (name, _values) -> String.equal name measurement)
-        fields_of_measurements
-    in
-    Lwt.return values
-
-  let get_field_position tag_names field_names timestamp_name columns =
-    List.mapi
-      (fun _pos name ->
-         let equal_name = String.equal name in
-         if equal_name timestamp_name
-         then (0,"time")
-         else
-           try
-             let field_name = List.find equal_name field_names in
-             (1, field_name)
-           with Not_found ->
-             let tag_name = List.find equal_name tag_names in
-             (2, tag_name)
-      )
-      columns
-
-  let rec get_point_of_value accu point info =
-    match info with
-    | [] -> accu
-    | head :: tail ->
-      let type_value, name = head in
-      let current_value_of_point = List.hd point in
-      let value =
-        match type_value with
-        | 0 -> Point.Time (Datetime.t_of_string (Json.Util.to_string current_value_of_point))
-        | 1 -> Point.Field (name, (Field.value_of_json current_value_of_point))
-        | 2 -> (Point.Tag (name, (Json.Util.to_string current_value_of_point)))
-        | _ -> failwith "get_point_of_value, type_value is not 0, 1 or 2"
-      in
-      get_point_of_value (value :: accu) (List.tl point) tail
-
-  let rec point_of_raw_point point raw_point = match raw_point with
-    | [] -> point
-    | head :: tail ->
-      let point = match head with
-        | Point.Time t ->
-          Point.to_t
-            (Point.measurement_of_point point)
-            (Point.fields_of_point point)
-            (Point.tags_of_point point)
-            t
-        | Point.Tag t ->
-          Point.to_t
-            (Point.measurement_of_point point)
-            (Point.fields_of_point point)
-            (t :: (Point.tags_of_point point))
-            (Point.time_of_point point)
-        | Point.Field t ->
-          Point.to_t
-            (Point.measurement_of_point point)
-            (t :: (Point.fields_of_point point))
-            (Point.tags_of_point point)
-            (Point.time_of_point point)
-      in
-      point_of_raw_point point tail
-
-    (** 0, name, pos or 1, name, pos or 2, name, pos *)
-        (* name, 0, values or name, 1, values *)
-
-  (** About points *)
-  let get_points client ?retention_policy ?(where=[]) ?column ?group_by measurement =
-    (* IMPROVEME *)
-    let field_names = get_field_names_of_measurement client measurement in
-    let tag_names = get_tag_names_of_measurement client measurement in
-    field_names >>= fun field_names ->
-    tag_names >>= fun tag_names ->
-    Raw.get_points client ?retention_policy ~where ?column ?group_by measurement >>= fun points ->
-    let results = QueryResult.of_string points in
-    let serie = QueryResult.series_of_t results in
-    let points = match serie with
-    | [] -> []
-    | serie :: _tail ->
-      let columns = QueryResult.columns_of_serie serie in
-      let info = get_field_position tag_names field_names "time" columns in
-      (* this function returns unit and iterate over a *)
-      (* ((1, field_name, i), (2, tag_name, j)) -> 1 for field, 2 for tag. 0 is used for timestamp. *)
-      let points =
-        List.map
-          (fun point -> get_point_of_value [] point info)
-          (QueryResult.values_of_serie serie)
-      in
-      List.map
-        (fun raw_point -> point_of_raw_point (Point.to_t measurement [] [] Datetime.big_bang) raw_point)
-        points
-    in
-    Lwt.return points
-end
+   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+  ---------------------------------------------------------------------------*)

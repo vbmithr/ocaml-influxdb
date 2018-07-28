@@ -1,10 +1,8 @@
-all: build
-
 build:
-	@dune build @install @runtest
+	dune build @install @runtest
 
 clean:
-	@dune clean
+	dune clean
 
-install: build
-	@dune install
+install:
+	dune install

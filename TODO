@@ -1,4 +1,0 @@
-- [ ] All requests must return a boolean or the status code.
-- [ ] Improve the code with caches.
-- [ ] get_points: when getting points on a non existing database, fail with not_found
-- [ ] Add functions to read points from CSV.

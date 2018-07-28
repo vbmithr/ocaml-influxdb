@@ -1,262 +1,66 @@
-module Json = Yojson.Basic
-
-module Datetime : sig
-  type t
-
-  val query_string_of_t : t -> string
-
-  val t_of_string : string -> t
-
-  val to_t : year:int -> month:int -> day:int -> hour:int -> minute:int -> second:int -> nanosecond:int -> t
-
-  val string_of_t : t -> string
-end
-
-
-module Where : sig
-  type order_sign =
-    | Equal
-    | Less
-    | Greater
-    | LessOrEqual
-    | GreaterOrEqual
-
-  type t =
-    | Tag of string * string
-    | Field of string * string
-    | Time of order_sign * Datetime.t
-end
-
-module Precision : sig
-  type t =
-    | Second
-    | Millisecond
-    | Microsecond
-    | Nanosecond
-
-  val string_of_t : t -> string
-
-  val t_of_string : string -> t
-end
+(*---------------------------------------------------------------------------
+   Copyright (c) 2018 Vincent Bernardoff. All rights reserved.
+   Distributed under the ISC license, see terms at the end of the file.
+  ---------------------------------------------------------------------------*)
 
 module Field : sig
-  (** The key of a field is a string. *)
-  type key = string
-
-  (** A value is either a float, a string, a boolean of an integer. *)
   type value =
     | Float of float
     | String of string
     | Bool of bool
-    | Int of int
+    | Int of int64
 
-  (** A field is a couple (key, value) *)
-  type t = key * value
+  val pp_value : Format.formatter -> value -> unit
+  val string_of_value : value -> string
 
-  val value_of_string : string -> value
-  val value_of_bool : bool -> value
-  val value_of_float : float -> value
-  val value_of_int : int -> value
-
-  (** Get the key of a tag. *)
-  val key_of_field : t -> key
-
-  (** Get the value of a tag. *)
-  val value_of_field : t -> value
-
-  val string_of_t : t -> string
-
-  val t_of_key_and_value : key -> value -> t
-end
-
-module RetentionPolicy : sig
-  type t
-
-  val name_of_t : t -> string
-  val duration_of_t : t -> string
-  val replicant_of_t : t -> int
-  val shard_group_duration_of_t : t -> string
-  val is_default : t -> bool
-
-  val t_of_tuple : string * string * string * int * bool -> t
-  val t_of_json : Json.json -> t
-
-  val to_t :
-    name:string ->
-    duration:string ->
-    shard_group_duration:string ->
-    replicant:int ->
-    default:bool ->
-    t
-end
-
-(** About points. *)
-module Point : sig
-  (** The type of point. *)
-  type t
-
-  (** Get the fields of a point. *)
-  val fields_of_point : t -> Field.t list
-
-  (** Get the tags of a point. *)
-  val tags_of_point : t -> (string * string) list
-
-  (** Get the measurement of a point. *)
-  val measurement_of_point : t -> string
-
-  val time_of_point : t -> Datetime.t
-
-  val to_t : string -> Field.t list -> (string * string) list -> Datetime.t -> t
-
-  val line_of_t : t -> string
-end
-
-(** Represent the result of a query *)
-module QueryResult : sig
-  (** A result is a statement id bounded to a list of series *)
-  type t
-
-  (** A serie contains a name, the columns of the result and the corresponding
-      list of values.
-      The values order is the same than the columns order.
-      IMPROVEME: merge columns and values and return a list of list of (column, value)?
-  *)
-  type serie
-
-  val series_of_t : t -> serie list
-  val statement_id_of_t : t -> int
-
-  val name_of_serie : serie -> string
-  val columns_of_serie : serie -> string list
-  val values_of_serie : serie -> Json.json list list
-end
-
-module Client : sig
-  type scheme = HTTP | HTTPS | UDP
   type t = {
-    scheme: scheme;
-    username: string;
-    password: string;
-    host: string;
-    port: int;
-    database: string
+    k: string;
+    v: value;
   }
 
-  val database : t -> string
+  val pp : Format.formatter -> t -> unit
+  val to_string : t -> string
+  val create : k:string -> v:value -> t
+
+  val key : t -> string
+  val value : t -> value
+end
+
+module Point : sig
+  type t = {
+    measurement: string;
+    fields: Field.t list;
+    tags: (string * string) list;
+    timestamp: Ptime.t
+  }
+
+  val pp : Format.formatter -> t -> unit
+  val to_string : t -> string
 
   val create :
-    ?scheme:scheme -> ?username:string -> ?password:string ->
-    ?host:string -> ?port:int ->
-    database:string -> unit -> t
+    measurement:string ->
+    fields:Field.t list ->
+    tags:(string * string) list ->
+    timestamp:Ptime.t -> unit -> t
 
-  val with_database : database:string -> t -> t
-
-  module Raw : sig
-    val get_request : t -> ?query:(string * string) list -> string -> string Lwt.t
-
-    val post_request : t -> string -> ?query:(string * string) list -> string -> string Lwt.t
-
-    (** About databases *)
-    val get_all_database_names : t -> string Lwt.t
-
-    val create_database : t -> string -> string Lwt.t
-
-    val drop_database :
-      t ->
-      string ->
-      string Lwt.t
-
-    (** About retention policies *)
-    val get_all_retention_policies_of_database : t -> string Lwt.t
-
-    val create_retention_policy :
-      ?default:bool ->
-      ?replicant:int ->
-      name:string ->
-      duration:string ->
-      t ->
-      string Lwt.t
-
-    val drop_retention_policy :
-      t ->
-      string ->
-      string Lwt.t
-
-    val get_points :
-      t ->
-      ?retention_policy:RetentionPolicy.t ->
-      ?where:Where.t list ->
-      ?column:string ->
-      ?group_by:string ->
-      string ->
-      string Lwt.t
-
-    val get_all_measurements :
-      t -> string Lwt.t
-
-    val drop_measurement : t -> string -> string Lwt.t
-
-    val write_points :
-      t ->
-      ?precision:Precision.t ->
-      ?retention_policy:RetentionPolicy.t ->
-      Point.t list ->
-      string Lwt.t
-
-    val get_tag_names_of_measurement : t -> string Lwt.t
-    val get_field_names_of_measurement : t -> string Lwt.t
-  end
-
-  val get_default_retention_policy_of_database : t -> RetentionPolicy.t Lwt.t
-
-  (** About databases *)
-  val get_all_database_names : t -> string list Lwt.t
-
-  val create_database : t -> string -> unit Lwt.t
-
-  val drop_database :
-    t ->
-    string ->
-    unit Lwt.t
-
-  (** About retention policies *)
-  val get_all_retention_policies : t -> RetentionPolicy.t list Lwt.t
-
-  val create_retention_policy :
-    ?default:bool ->
-    ?replicant:int ->
-    name:string ->
-    duration:string ->
-    t ->
-    unit Lwt.t
-
-  val drop_retention_policy :
-    t ->
-    string ->
-    unit Lwt.t
-
-  val get_points :
-    t ->
-    ?retention_policy:RetentionPolicy.t ->
-    ?where:Where.t list ->
-    ?column:string ->
-    ?group_by:string ->
-    string ->
-    Point.t list Lwt.t
-
-  val write_points :
-    t ->
-    ?precision:Precision.t ->
-    ?retention_policy:RetentionPolicy.t ->
-    Point.t list ->
-    unit Lwt.t
-
-  (** About measurements *)
-  val get_all_measurements : t -> string list Lwt.t
-
-  val drop_measurement : t -> string -> unit Lwt.t
-
-  val get_tag_names_of_measurement : t -> string -> string list Lwt.t
-
-  val get_field_names_of_measurement : t -> string -> string list Lwt.t
+  val fields : t -> Field.t list
+  val tags : t -> (string * string) list
+  val measurement : t -> string
+  val timestamp : t -> Ptime.t
 end
+
+(*---------------------------------------------------------------------------
+   Copyright (c) 2018 Vincent Bernardoff
+
+   Permission to use, copy, modify, and/or distribute this software for any
+   purpose with or without fee is hereby granted, provided that the above
+   copyright notice and this permission notice appear in all copies.
+
+   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+  ---------------------------------------------------------------------------*)

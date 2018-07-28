@@ -2,7 +2,4 @@
   ((name influxdb)
    (public_name influxdb)
    (modules influxdb)
-   (optional)
-   (libraries (lwt cohttp cohttp.lwt yojson ptime))
-  )
-)
+   (libraries (fmt lwt ptime ocplib-resto-directory))))
