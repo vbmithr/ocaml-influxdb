@@ -90,15 +90,6 @@ module RetentionPolicy : sig
     t
 end
 
-module Measurement : sig
-  (** The type of a measurement. *)
-  type t
-
-  val t_of_string : string -> t
-
-  val string_of_t : t -> string
-end
-
 (** About points. *)
 module Point : sig
   (** The type of point. *)
@@ -111,11 +102,11 @@ module Point : sig
   val tags_of_point : t -> (string * string) list
 
   (** Get the measurement of a point. *)
-  val measurement_of_point : t -> Measurement.t
+  val measurement_of_point : t -> string
 
   val time_of_point : t -> Datetime.t
 
-  val to_t : Measurement.t -> Field.t list -> (string * string) list -> Datetime.t -> t
+  val to_t : string -> Field.t list -> (string * string) list -> Datetime.t -> t
 
   val line_of_t : t -> string
 end
@@ -197,13 +188,13 @@ module Client : sig
       ?where:Where.t list ->
       ?column:string ->
       ?group_by:string ->
-      Measurement.t ->
+      string ->
       string Lwt.t
 
     val get_all_measurements :
       t -> string Lwt.t
 
-    val drop_measurement : t -> Measurement.t -> string Lwt.t
+    val drop_measurement : t -> string -> string Lwt.t
 
     val write_points :
       t ->
@@ -250,7 +241,7 @@ module Client : sig
     ?where:Where.t list ->
     ?column:string ->
     ?group_by:string ->
-    Measurement.t ->
+    string ->
     Point.t list Lwt.t
 
   val write_points :
@@ -261,11 +252,11 @@ module Client : sig
     unit Lwt.t
 
   (** About measurements *)
-  val get_all_measurements : t -> Measurement.t list Lwt.t
+  val get_all_measurements : t -> string list Lwt.t
 
-  val drop_measurement : t -> Measurement.t -> unit Lwt.t
+  val drop_measurement : t -> string -> unit Lwt.t
 
-  val get_tag_names_of_measurement : t -> Measurement.t -> string list Lwt.t
+  val get_tag_names_of_measurement : t -> string -> string list Lwt.t
 
-  val get_field_names_of_measurement : t -> Measurement.t -> string list Lwt.t
+  val get_field_names_of_measurement : t -> string -> string list Lwt.t
 end

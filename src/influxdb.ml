@@ -223,23 +223,10 @@ module RetentionPolicy = struct
   }
 end
 
-module Measurement = struct
-  (** The type of a measurement. *)
-  type t = {
-    name: string;
-  }
-
-  let t_of_string name = {
-    name
-  }
-
-  let string_of_t m = m.name
-end
-
 module Point = struct
   (** The type of point. *)
   type t = {
-    measurement: Measurement.t;
+    measurement: string;
     fields: Field.t list;
     tags: (string * string) list;
     time: Datetime.t;
@@ -251,7 +238,7 @@ module Point = struct
     | Time of Datetime.t
 
   (** Get the measurement of a point. *)
-  let measurement_of_point point = point.measurement
+  let measurement_of_point { measurement ; _ } = measurement
 
   (** Get the fields of a point. *)
   let fields_of_point point = point.fields
@@ -265,7 +252,7 @@ module Point = struct
   let line_of_t point =
     Printf.sprintf
       "%s,%s %s %s"
-      (Measurement.string_of_t point.measurement)
+      point.measurement
       (String.concat "," (List.map (fun (k, v) -> k ^ "=" ^ v) point.tags))
       (String.concat "," (List.map Field.string_of_t point.fields))
       (Int64.to_string (Datetime.int64_of_t point.time))
@@ -384,12 +371,12 @@ module Client = struct
       (* If a retention policy is given, we need to use %s.%s.%s. Else, we can
          only use the measurement and mention the database name in parameter *)
       let from_request = match retention_policy with
-        | None -> (Measurement.string_of_t measurement)
+        | None -> measurement
         | Some rp -> Printf.sprintf
                        "%s.%s.%s"
                        client.database
                        (RetentionPolicy.name_of_t rp)
-                       (Measurement.string_of_t measurement)
+                       measurement
       in
       let column = match column with
         | None -> "*"
@@ -483,7 +470,7 @@ module Client = struct
          simple quote.
       *)
       let data =
-        "q=DROP MEASUREMENT " ^ (Measurement.string_of_t measurement)
+        "q=DROP MEASUREMENT " ^ measurement
       in
       post_request client "query" ~query:[("db", client.database)] data
 
@@ -553,8 +540,7 @@ module Client = struct
     let measurements = match (QueryResult.series_of_t results) with
       | [] -> []
       | head :: _tail ->
-        List.map
-          (fun json -> Json.Util.to_string json |> Measurement.t_of_string)
+        List.map Json.Util.to_string
           ((QueryResult.values_of_serie head) |> List.hd)
           (* let measurements = List.map Measurement.t_of_string raw_measurements in *)
     in
@@ -582,7 +568,7 @@ module Client = struct
     in
     let values =
       snd @@ List.find
-        (fun (name, _values) -> String.equal name (Measurement.string_of_t measurement))
+        (fun (name, _values) -> String.equal name measurement)
         tags_of_measurements
     in
     Lwt.return values
@@ -606,7 +592,7 @@ module Client = struct
     in
     let values =
       snd @@ List.find
-        (fun (name, _values) -> String.equal name (Measurement.string_of_t measurement))
+        (fun (name, _values) -> String.equal name measurement)
         fields_of_measurements
     in
     Lwt.return values
