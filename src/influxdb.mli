@@ -69,21 +69,6 @@ module Field : sig
   val t_of_key_and_value : key -> value -> t
 end
 
-module Tag : sig
-  (** The key of a tag. *)
-  type key = string
-
-  (** The value of a tag. *)
-  type value = string
-
-  (** A field is a couple (key, value) *)
-  type t = key * value
-
-  val t_of_key_and_value : key -> value -> t
-
-  val string_of_t : t -> string
-end
-
 module RetentionPolicy : sig
   type t
 
@@ -123,14 +108,14 @@ module Point : sig
   val fields_of_point : t -> Field.t list
 
   (** Get the tags of a point. *)
-  val tags_of_point : t -> Tag.t list
+  val tags_of_point : t -> (string * string) list
 
   (** Get the measurement of a point. *)
   val measurement_of_point : t -> Measurement.t
 
   val time_of_point : t -> Datetime.t
 
-  val to_t : Measurement.t -> Field.t list -> Tag.t list -> Datetime.t -> t
+  val to_t : Measurement.t -> Field.t list -> (string * string) list -> Datetime.t -> t
 
   val line_of_t : t -> string
 end

@@ -163,20 +163,6 @@ module Field = struct
   let t_of_key_and_value key value = (key, value)
 end
 
-module Tag = struct
-  type key = string
-  type value = string
-  type t = key * value
-
-  let t_of_key_and_value k v = (k, v)
-
-  let string_of_t (key, value) =
-    Printf.sprintf
-      "%s=%s"
-      key
-      value
-end
-
 module RetentionPolicy = struct
   type t = {
     name: string;
@@ -255,13 +241,13 @@ module Point = struct
   type t = {
     measurement: Measurement.t;
     fields: Field.t list;
-    tags: Tag.t list;
+    tags: (string * string) list;
     time: Datetime.t;
   }
 
   type raw_value =
     | Field of Field.t
-    | Tag of Tag.t
+    | Tag of (string * string)
     | Time of Datetime.t
 
   (** Get the measurement of a point. *)
@@ -280,7 +266,7 @@ module Point = struct
     Printf.sprintf
       "%s,%s %s %s"
       (Measurement.string_of_t point.measurement)
-      (String.concat "," (List.map Tag.string_of_t point.tags))
+      (String.concat "," (List.map (fun (k, v) -> k ^ "=" ^ v) point.tags))
       (String.concat "," (List.map Field.string_of_t point.fields))
       (Int64.to_string (Datetime.int64_of_t point.time))
 
@@ -651,7 +637,7 @@ module Client = struct
         match type_value with
         | 0 -> Point.Time (Datetime.t_of_string (Json.Util.to_string current_value_of_point))
         | 1 -> Point.Field (name, (Field.value_of_json current_value_of_point))
-        | 2 -> (Point.Tag (Tag.t_of_key_and_value name (Json.Util.to_string current_value_of_point)))
+        | 2 -> (Point.Tag (name, (Json.Util.to_string current_value_of_point)))
         | _ -> failwith "get_point_of_value, type_value is not 0, 1 or 2"
       in
       get_point_of_value (value :: accu) (List.tl point) tail
