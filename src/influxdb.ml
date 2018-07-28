@@ -403,11 +403,11 @@ module Client = struct
       in
       Cohttp_lwt_unix.Client.get (Uri.of_string url) >>= fun(response, body) ->
       (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
-      let body = Cohttp_lwt_body.to_string body in
+      let body = Cohttp_lwt.Body.to_string body in
       body
 
     let post_request client endpoint ?(additional_params=[]) data =
-      let body = Cohttp_lwt_body.of_string data in
+      let body = Cohttp_lwt.Body.of_string data in
       let base_url = url client in
       let additional_params =
         if List.length additional_params > 0
@@ -430,7 +430,7 @@ module Client = struct
       in
       Cohttp_lwt_unix.Client.post ~body ~headers (Uri.of_string url) >>= fun (response, body) ->
       (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
-      Cohttp_lwt_body.to_string body
+      Cohttp_lwt.Body.to_string body
 
     let get_points client ?retention_policy ?(where=[]) ?column ?group_by measurement =
       (* If a retention policy is given, we need to use %s.%s.%s. Else, we can
