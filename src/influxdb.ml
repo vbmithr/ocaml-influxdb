@@ -70,6 +70,24 @@ module Point = struct
   let to_string = Fmt.to_to_string pp
 end
 
+module Query = struct
+  type 'a t = {
+    name : string ;
+    columns : string list ;
+    values : 'a list ;
+  }
+
+  let encoding a =
+    let open Json_encoding in
+    conv
+      (fun { name ; columns ; values } -> (name, columns, values))
+      (fun (name, columns, values) -> { name ; columns ; values })
+      (obj3
+         (req "name" string)
+         (req "columns" (list string))
+         (req "values" (list a)))
+end
+
 (*---------------------------------------------------------------------------
    Copyright (c) 2018 Vincent Bernardoff
 

@@ -49,6 +49,17 @@ module Point : sig
   val timestamp : t -> Ptime.t
 end
 
+module Query : sig
+  type 'a t = {
+    name : string ;
+    columns : string list ;
+    values : 'a list ;
+  }
+
+  val encoding :
+    'a Json_encoding.encoding -> 'a t Json_encoding.encoding
+end
+
 (*---------------------------------------------------------------------------
    Copyright (c) 2018 Vincent Bernardoff
 
