@@ -31,22 +31,22 @@ module Point : sig
     measurement: string;
     fields: Field.t list;
     tags: (string * string) list;
-    timestamp: Ptime.t
+    timestamp: Ptime.t option
   }
 
   val pp : Format.formatter -> t -> unit
   val to_string : t -> string
 
   val create :
-    measurement:string ->
-    fields:Field.t list ->
-    tags:(string * string) list ->
-    timestamp:Ptime.t -> unit -> t
+    ?timestamp:Ptime.t ->
+    ?fields:Field.t list ->
+    ?tags:(string * string) list ->
+    string -> t
 
   val fields : t -> Field.t list
   val tags : t -> (string * string) list
   val measurement : t -> string
-  val timestamp : t -> Ptime.t
+  val timestamp : t -> Ptime.t option
 end
 
 module Query : sig

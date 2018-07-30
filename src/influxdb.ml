@@ -43,10 +43,10 @@ module Point = struct
     measurement: string;
     fields: Field.t list;
     tags: (string * string) list;
-    timestamp: Ptime.t
+    timestamp: Ptime.t option;
   }
 
-  let create ~measurement ~fields ~tags ~timestamp () =
+  let create ?timestamp ?(fields=[]) ?(tags=[]) measurement =
     { measurement; fields ; tags ; timestamp }
 
   let measurement { measurement ; _ } = measurement
@@ -61,11 +61,15 @@ module Point = struct
     Format.fprintf ppf "%s=%s" k v
 
   let pp ppf { measurement ; fields ; tags ; timestamp } =
-    Format.fprintf ppf "%s,%a %a %a"
-      measurement
-      (pp_list pp_print_tag) tags
-      (pp_list Field.pp) fields
-      pp_ptime_ns timestamp
+    match timestamp with
+    | None ->
+      Format.fprintf ppf "%s,%a %a"
+        measurement (pp_list pp_print_tag) tags (pp_list Field.pp) fields
+    | Some timestamp ->
+      Format.fprintf ppf "%s,%a %a %a"
+        measurement
+        (pp_list pp_print_tag) tags (pp_list Field.pp) fields
+        pp_ptime_ns timestamp
 
   let to_string = Fmt.to_to_string pp
 end
