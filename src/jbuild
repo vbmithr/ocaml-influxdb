@@ -1,9 +1,0 @@
-(library
-  ((name influxdb)
-   (public_name influxdb)
-   (modules influxdb)
-   (libraries (fmt
-               lwt
-               ptime
-               ocplib-json-typed
-               ocplib-resto-directory))))

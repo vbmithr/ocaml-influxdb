@@ -1,0 +1,5 @@
+(library
+ (name influxdb)
+ (public_name influxdb)
+ (modules influxdb)
+ (libraries fmt ptime ocplib-json-typed))
